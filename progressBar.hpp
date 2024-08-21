@@ -102,14 +102,15 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
     int showValueFieldWidth;
 
     int showPercentageWidth = 6;
+
     std::chrono::time_point<std::chrono::steady_clock> startTime;
     bool started = false;
-    int elapsedTimeWidth = 7 + 1 + 8; // elapsed hh:mm:ss
+    int elapsedTimeWidth = 7 + 1 + 8 + 1; // elapsed hh:mm:ss
 
     static constexpr int memoryLength = 256;
     progressBarUtils::CircularBuffer<memoryLength> memory;
     std::chrono::time_point<std::chrono::steady_clock> lastTime;
-    int ETAWidth = 3 + 1 + 8; // eta hh:mm:ss
+    int ETAWidth = 3 + 1 + 8 + 1; // eta hh:mm:ss
 
     int getShowValueWidth()
     {
@@ -223,7 +224,7 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
             int minutes = (elapsed % 3600) / 60;
             int seconds = elapsed % 60;
             sprintf(&bar[barWidth + (showPercentage ? 6 : 0) + (showValue ? showValueFieldWidth : 0) + 2],
-                    "elapsed %02d:%02d:%02d", hours, minutes, seconds);
+                    " elapsed %02d:%02d:%02d", hours, minutes, seconds);
         }
 
         if (showTimeLeft)
@@ -238,7 +239,7 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
             int seconds = (int)eta % 60;
             sprintf(&bar[barWidth + (showPercentage ? 6 : 0) + (showValue ? showValueFieldWidth : 0) +
                          (showTimeElapsed ? elapsedTimeWidth : 0) + 2],
-                    "eta %02d:%02d:%02d", hours, minutes, seconds);
+                    " eta %02d:%02d:%02d", hours, minutes, seconds);
         }
 
         return bar;
