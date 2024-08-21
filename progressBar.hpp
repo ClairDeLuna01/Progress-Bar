@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fcntl.h>
@@ -45,6 +46,38 @@ int getTerminalWidth()
 #endif
 }
 
+template <int size> struct CircularBuffer
+{
+    double buffer[size];
+    int head = 0;
+    int tail = 0;
+    int length = 0;
+
+    void push(double d)
+    {
+        buffer[tail] = d;
+        tail = (tail + 1) % size;
+        if (length < size)
+        {
+            length++;
+        }
+        else
+        {
+            head = (head + 1) % size;
+        }
+    }
+
+    double average()
+    {
+        double sum = 0;
+        for (int i = 0; i < length; i++)
+        {
+            sum += buffer[i];
+        }
+        return sum / (double)length;
+    }
+};
+
 } // namespace progressBarUtils
 
 #define PROGRESS_BAR_WIDTH_AUTO -1
@@ -60,28 +93,46 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
     int terminalWidth;
     int totalWidth;
 
-    void *iterable = nullptr;
-
     bool showPercentage;
     bool showValue;
+    bool showTimeElapsed;
+    bool showTimeLeft;
+
     int showValueWidth;
     int showValueFieldWidth;
+
     int showPercentageWidth = 6;
+    std::chrono::time_point<std::chrono::steady_clock> startTime;
+    bool started = false;
+    int elapsedTimeWidth = 7 + 1 + 8; // elapsed hh:mm:ss
+
+    static constexpr int memoryLength = 256;
+    progressBarUtils::CircularBuffer<memoryLength> memory;
+    std::chrono::time_point<std::chrono::steady_clock> lastTime;
+    int ETAWidth = 3 + 1 + 8; // eta hh:mm:ss
 
     int getShowValueWidth()
     {
         if (showValue)
         {
-            return std::to_string(maxVal).length();
+            return std::to_string(maxVal).length() + 2;
         }
         return 0;
     }
 
+    double getETA(T progressRaw)
+    {
+        double operationAverage = memory.average();
+        double left = maxVal - progressRaw;
+        return left * operationAverage;
+    }
+
   public:
     ProgressBar(T minVal, T maxVal, int _barWidth = -1, ProgressBarFill fill = ProgressBarFill::EQUAL,
-                bool showPercentage = true, bool showValue = true, bool _isDerived = false)
+                bool showPercentage = true, bool showValue = true, bool showTimeElapsed = true,
+                bool showTimeLeft = true, bool _isDerived = false)
         : minVal(minVal), maxVal(maxVal), barWidth(_barWidth), fill(fill), showPercentage(showPercentage),
-          showValue(showValue)
+          showValue(showValue), showTimeElapsed(showTimeElapsed), showTimeLeft(showTimeLeft)
     {
         terminalWidth = progressBarUtils::getTerminalWidth();
         showValueWidth = getShowValueWidth();
@@ -92,12 +143,15 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
         if (barWidth == -1)
         {
             barWidth = std::min(terminalWidth - (showPercentage ? showPercentageWidth : 0) -
-                                    (showValue ? showValueFieldWidth : 0) - 3,
+                                    (showValue ? showValueFieldWidth : 0) - (showTimeElapsed ? elapsedTimeWidth : 0) -
+                                    (showTimeLeft ? ETAWidth : 0) - 3,
                                 maxVal);
         }
 
-        totalWidth = barWidth + (showPercentage ? showPercentageWidth : 0) + (showValue ? showValueFieldWidth : 0) + 3;
+        totalWidth = barWidth + (showPercentage ? showPercentageWidth : 0) + (showValue ? showValueFieldWidth : 0) +
+                     (showTimeElapsed ? elapsedTimeWidth : 0) + (showTimeLeft ? ETAWidth : 0) + 3;
 
+        // trully terrible solution
         if (!_isDerived && (fill == ProgressBarFill::SHADE_BLOCK || fill == ProgressBarFill::FILL_BLOCK ||
                             fill == ProgressBarFill::COLOR))
         {
@@ -108,6 +162,13 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
 
     std::string printProgress(T progressRaw)
     {
+        if (!started)
+        {
+            startTime = std::chrono::steady_clock::now();
+            lastTime = startTime;
+            started = true;
+        }
+
         float progress = (float)(progressRaw - minVal) / (float)(maxVal - minVal);
 
         float posFloat = progress * barWidth;
@@ -150,8 +211,34 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
 
         if (showValue)
         {
-            sprintf(&bar[barWidth + (showPercentage ? 6 : 0) + 2], " %*d/%d", (int)std::to_string(maxVal).length(),
+            sprintf(&bar[barWidth + (showPercentage ? 6 : 0) + 2], " [%*d/%d]", (int)std::to_string(maxVal).length(),
                     progressRaw, maxVal);
+        }
+
+        if (showTimeElapsed)
+        {
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime).count();
+            int hours = elapsed / 3600;
+            int minutes = (elapsed % 3600) / 60;
+            int seconds = elapsed % 60;
+            sprintf(&bar[barWidth + (showPercentage ? 6 : 0) + (showValue ? showValueFieldWidth : 0) + 2],
+                    "elapsed %02d:%02d:%02d", hours, minutes, seconds);
+        }
+
+        if (showTimeLeft)
+        {
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - lastTime).count();
+            memory.push(elapsed);
+            lastTime = currentTime;
+            double eta = getETA(progressRaw);
+            int hours = eta / 3600;
+            int minutes = (int)(eta / 60) % 60;
+            int seconds = (int)eta % 60;
+            sprintf(&bar[barWidth + (showPercentage ? 6 : 0) + (showValue ? showValueFieldWidth : 0) +
+                         (showTimeElapsed ? elapsedTimeWidth : 0) + 2],
+                    "eta %02d:%02d:%02d", hours, minutes, seconds);
         }
 
         return bar;
@@ -160,18 +247,6 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
     virtual void operator()(T progressRaw)
     {
         std::cout << printProgress(progressRaw) << std::flush;
-    }
-
-    // prefix
-    void operator++()
-    {
-        (*this)(currentValue++);
-    }
-
-    // postfix
-    void operator++(int) // dummy int argument to differentiate from prefix
-    {
-        (*this)(currentValue++);
     }
 };
 
@@ -184,10 +259,18 @@ class ProgressBarUnicode : public ProgressBar<T>
     static constexpr wchar_t fillBlock[] = L" ▏▎▍▌▋▊▉█";
     static constexpr int fillBlockLength = 8;
 
+    static constexpr wchar_t colorReset[] = L"\33[0m";
+    static constexpr wchar_t colorPercentage[] = L"\x1b[38;2;35;168;17m";
+    static constexpr wchar_t colorValue[] = L"\x1b[38;2;255;89;89m";
+    static constexpr wchar_t colorElapsed[] = L"\x1b[38;2;250;188;63m";
+    static constexpr wchar_t colorETA[] = L"\x1b[38;2;16;158;159m";
+
   public:
     ProgressBarUnicode(T minVal, T maxVal, int _barWidth = -1, ProgressBarFill fill = ProgressBarFill::SHADE_BLOCK,
-                       bool showPercentage = true, bool showValue = true)
-        : ProgressBar<T>(minVal, maxVal, _barWidth, fill, showPercentage, showValue, true)
+                       bool showPercentage = true, bool showValue = true, bool showTimeElapsed = true,
+                       bool showTimeLeft = true)
+        : ProgressBar<T>(minVal, maxVal, _barWidth, fill, showPercentage, showValue, showTimeElapsed, showTimeLeft,
+                         true)
     {
         if (fill != ProgressBarFill::SHADE_BLOCK && fill != ProgressBarFill::FILL_BLOCK &&
             fill != ProgressBarFill::COLOR)
@@ -204,6 +287,13 @@ class ProgressBarUnicode : public ProgressBar<T>
 
     std::wstring printProgress(T progressRaw)
     {
+        if (!this->started)
+        {
+            this->startTime = std::chrono::steady_clock::now();
+            this->lastTime = this->startTime;
+            this->started = true;
+        }
+
         float progress = (float)(progressRaw - this->minVal) / (float)(this->maxVal - this->minVal);
 
         float posFloat = progress * this->barWidth;
@@ -262,11 +352,11 @@ class ProgressBarUnicode : public ProgressBar<T>
             if (pos != this->barWidth)
             {
                 ss << L" \x1b[38;2;255;89;895m" << std::wstring(pos, L'━') << L"\33[38;2;11;11;11m" << L'━'
-                   << L"\x1b[38;2;50;50;50m" << std::wstring(this->barWidth - pos - 1, L'━') << L" \33[0m ";
+                   << L"\x1b[38;2;50;50;50m" << std::wstring(this->barWidth - pos - 1, L'━') << L" \33[0m";
             }
             else
             {
-                ss << L" \x1b[38;2;114;156;31m" << std::wstring(this->barWidth, L'━') << L" \33[0m ";
+                ss << L" \x1b[38;2;114;156;31m" << std::wstring(this->barWidth, L'━') << L" \33[0m";
             }
         default:
             break;
@@ -274,12 +364,40 @@ class ProgressBarUnicode : public ProgressBar<T>
 
         if (this->showPercentage)
         {
-            ss << L" " << std::setw(3) << std::setfill(L' ') << (int)(progress * 100) << L"%";
+            ss << L" " << colorPercentage << std::setw(3) << std::setfill(L' ') << (int)(progress * 100) << L"%"
+               << colorReset;
         }
 
         if (this->showValue)
         {
-            ss << L" " << std::setw(this->showValueWidth) << std::setfill(L' ') << progressRaw << L"/" << this->maxVal;
+            ss << L" [" << colorValue << std::setw(this->showValueWidth - 2) << std::setfill(L' ') << progressRaw
+               << L"/" << this->maxVal << colorReset << L"]";
+        }
+
+        if (this->showTimeElapsed)
+        {
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - this->startTime).count();
+            int hours = elapsed / 3600;
+            int minutes = (elapsed % 3600) / 60;
+            int seconds = elapsed % 60;
+            ss << L" elapsed " << colorElapsed << std::setw(2) << std::setfill(L'0') << hours << L":" << std::setw(2)
+               << std::setfill(L'0') << minutes << L":" << std::setw(2) << std::setfill(L'0') << seconds << colorReset;
+        }
+
+        if (this->showTimeLeft)
+        {
+            auto currentTime = std::chrono::steady_clock::now();
+            double elapsed =
+                std::chrono::duration_cast<std::chrono::duration<double>>(currentTime - this->lastTime).count();
+            this->lastTime = currentTime;
+            this->memory.push(elapsed);
+            double eta = this->getETA(progressRaw);
+            int hours = eta / 3600;
+            int minutes = (int)(eta / 60) % 60;
+            int seconds = (int)eta % 60;
+            ss << L" eta " << colorETA << std::setw(2) << std::setfill(L'0') << hours << L":" << std::setw(2)
+               << std::setfill(L'0') << minutes << L":" << std::setw(2) << std::setfill(L'0') << seconds << colorReset;
         }
 
         return ss.str();
