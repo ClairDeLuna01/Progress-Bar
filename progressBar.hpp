@@ -230,10 +230,11 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
         if (showTimeLeft)
         {
             auto currentTime = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - lastTime).count();
-            memory.push(elapsed);
-            lastTime = currentTime;
-            double eta = getETA(progressRaw);
+            double elapsed =
+                std::chrono::duration_cast<std::chrono::duration<double>>(currentTime - this->lastTime).count();
+            this->lastTime = currentTime;
+            this->memory.push(elapsed);
+            double eta = this->getETA(progressRaw);
             int hours = eta / 3600;
             int minutes = (int)(eta / 60) % 60;
             int seconds = (int)eta % 60;
@@ -248,6 +249,18 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
     virtual void operator()(T progressRaw)
     {
         std::cout << printProgress(progressRaw) << std::flush;
+    }
+
+    void operator++()
+    {
+        currentValue++;
+        operator()(currentValue);
+    }
+
+    void operator++(int)
+    {
+        currentValue++;
+        operator()(currentValue);
     }
 };
 
