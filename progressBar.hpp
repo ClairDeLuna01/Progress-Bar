@@ -112,6 +112,8 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
     std::chrono::time_point<std::chrono::steady_clock> lastTime;
     int ETAWidth = 3 + 1 + 8 + 1; // eta hh:mm:ss
 
+    bool stretch = true;
+
     int getShowValueWidth()
     {
         if (showValue)
@@ -131,9 +133,9 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
   public:
     ProgressBar(T minVal, T maxVal, int _barWidth = -1, ProgressBarFill fill = ProgressBarFill::EQUAL,
                 bool showPercentage = true, bool showValue = true, bool showTimeElapsed = true,
-                bool showTimeLeft = true, bool _isDerived = false)
+                bool showTimeLeft = true, bool _stretch = true, bool _isDerived = false)
         : minVal(minVal), maxVal(maxVal), barWidth(_barWidth), fill(fill), showPercentage(showPercentage),
-          showValue(showValue), showTimeElapsed(showTimeElapsed), showTimeLeft(showTimeLeft)
+          showValue(showValue), showTimeElapsed(showTimeElapsed), showTimeLeft(showTimeLeft), stretch(_stretch)
     {
         terminalWidth = progressBarUtils::getTerminalWidth();
         showValueWidth = getShowValueWidth();
@@ -143,16 +145,25 @@ template <typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0> class 
 
         if (barWidth == -1)
         {
-            barWidth = std::min(terminalWidth - (showPercentage ? showPercentageWidth : 0) -
-                                    (showValue ? showValueFieldWidth : 0) - (showTimeElapsed ? elapsedTimeWidth : 0) -
-                                    (showTimeLeft ? ETAWidth : 0) - 3,
-                                maxVal);
+            if (!stretch)
+            {
+                barWidth = std::min(terminalWidth - (showPercentage ? showPercentageWidth : 0) -
+                                        (showValue ? showValueFieldWidth : 0) -
+                                        (showTimeElapsed ? elapsedTimeWidth : 0) - (showTimeLeft ? ETAWidth : 0) - 3,
+                                    maxVal);
+            }
+            else
+            {
+                barWidth = terminalWidth - (showPercentage ? showPercentageWidth : 0) -
+                           (showValue ? showValueFieldWidth : 0) - (showTimeElapsed ? elapsedTimeWidth : 0) -
+                           (showTimeLeft ? ETAWidth : 0) - 3;
+            }
         }
 
         totalWidth = barWidth + (showPercentage ? showPercentageWidth : 0) + (showValue ? showValueFieldWidth : 0) +
                      (showTimeElapsed ? elapsedTimeWidth : 0) + (showTimeLeft ? ETAWidth : 0) + 3;
 
-        // trully terrible solution
+        // truly terrible solution
         if (!_isDerived && (fill == ProgressBarFill::SHADE_BLOCK || fill == ProgressBarFill::FILL_BLOCK ||
                             fill == ProgressBarFill::COLOR))
         {
@@ -282,9 +293,9 @@ class ProgressBarUnicode : public ProgressBar<T>
   public:
     ProgressBarUnicode(T minVal, T maxVal, int _barWidth = -1, ProgressBarFill fill = ProgressBarFill::SHADE_BLOCK,
                        bool showPercentage = true, bool showValue = true, bool showTimeElapsed = true,
-                       bool showTimeLeft = true)
+                       bool showTimeLeft = true, bool _stretch = true)
         : ProgressBar<T>(minVal, maxVal, _barWidth, fill, showPercentage, showValue, showTimeElapsed, showTimeLeft,
-                         true)
+                         _stretch, true)
     {
         if (fill != ProgressBarFill::SHADE_BLOCK && fill != ProgressBarFill::FILL_BLOCK &&
             fill != ProgressBarFill::COLOR)
