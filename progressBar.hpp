@@ -310,6 +310,13 @@ class ProgressBarUnicode : public ProgressBar<T>
 #endif
     }
 
+    ~ProgressBarUnicode()
+    {
+#ifdef _WIN32
+        _setmode(_fileno(stdout), _O_TEXT);
+#endif
+    }
+
     std::wstring printProgress(T progressRaw)
     {
         if (!this->started)
